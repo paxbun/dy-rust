@@ -22,9 +22,9 @@ macro_rules! def_type {
             )+
         }
 
-        impl TryFrom<i32> for Type {
+        impl TryFrom<_dy_type_t> for Type {
             type Error = ();
-            fn try_from(i: i32) -> Result<Self, ()> {
+            fn try_from(i: _dy_type_t) -> Result<Self, ()> {
                 match i {
                     $($internal => Ok(Type::$name),)+
                     _ => Err(())
@@ -32,8 +32,8 @@ macro_rules! def_type {
             }
         }
 
-        impl Into<i32> for Type {
-            fn into(self) -> i32 {
+        impl Into<_dy_type_t> for Type {
+            fn into(self) -> _dy_type_t {
                 match self {
                     $(Type::$name => $internal,)+
                 }
