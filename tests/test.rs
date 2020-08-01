@@ -51,11 +51,11 @@ fn generic_array_test() {
         Value::new_bool(true),
     ]);
     assert!(dy.is_arr());
-    let dy = get_doubled_array(dy);
-    assert_eq!(dy.get_arr_len().unwrap(), 6);
+    let dy = get_doubled_array(dy).decompose_arr().unwrap();
+    assert_eq!(dy.len(), 6);
 
     for i in 0..6 {
-        let val = dy.get_arr_idx(i).unwrap();
+        let val = &dy[i];
         match i {
             0 | 3 => assert_eq!(val.get_str().unwrap(), "hello"),
             1 | 4 => assert_eq!(val.get_int().unwrap(), 15),
@@ -74,11 +74,11 @@ fn generic_map_test() {
     ]);
     assert!(dy.is_map());
 
-    let iter = MapIter::new(&dy).unwrap();
+    let map = dy.decompose_map().unwrap();
 
-    for pair in iter {
-        let val = pair.get_val();
-        match pair.get_key() {
+    for (key, val) in map.iter() {
+        let key: &str = &key;
+        match key {
             "foo" => assert_eq!(val.get_int_arr().unwrap(), &[2, 5, 4, 8, 1]),
             "bar" => assert_eq!(val.get_str().unwrap(), "hello"),
             "baz" => assert_eq!(val.get_int().unwrap(), 15),

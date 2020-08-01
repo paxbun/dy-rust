@@ -4,6 +4,7 @@ mod bindings;
 
 use bindings::*;
 use std::borrow::Cow;
+use std::collections::HashMap;
 use std::convert::{Into, TryFrom};
 use std::ffi::{CStr, CString};
 use std::ptr::null;
@@ -69,18 +70,22 @@ def_type! {
 pub type ValuePtr = dy_t;
 
 /// Wraps a value.
+#[derive(Debug)]
 pub struct Value {
     val: ValuePtr,
     owned: bool,
+    dispose_self: bool,
 }
 
 /// Indicates an iterator of a generic map
+#[derive(Debug)]
 pub struct MapIter<'a> {
     wrap: &'a Value,
     iter: dy_iter_t,
 }
 
 /// Indicates a key-value pair
+#[derive(Debug)]
 pub struct KeyValPair<'a> {
     key: &'a str,
     wrap: Value,
@@ -106,10 +111,11 @@ impl Value {
     /// # Arguments
     ///
     /// * `val` - the value instance to wrap
-    pub unsafe fn from_val(val: ValuePtr) -> Self {
+    pub unsafe fn from_ptr(val: ValuePtr) -> Self {
         Value {
             val: val,
             owned: true,
+            dispose_self: false,
         }
     }
 
@@ -118,10 +124,11 @@ impl Value {
     /// # Arguments
     ///
     /// * `val` - the value instance to wrap
-    pub unsafe fn from_val_borrowed(val: ValuePtr) -> Self {
+    pub unsafe fn from_ptr_borrowed(val: ValuePtr) -> Self {
         Value {
             val: val,
             owned: false,
+            dispose_self: false,
         }
     }
 
@@ -133,7 +140,7 @@ impl Value {
 
     /// Makes a new null value
     pub fn new_null() -> Self {
-        unsafe { Value::from_val(dy_make_null()) }
+        unsafe { Value::from_ptr(dy_make_null()) }
     }
 
     /// Makes a new string
@@ -143,7 +150,7 @@ impl Value {
     /// * `v` - the string to copy
     pub fn new_str(v: &str) -> Self {
         let s = CString::new(v).unwrap();
-        unsafe { Value::from_val(dy_make_str(s.as_ptr())) }
+        unsafe { Value::from_ptr(dy_make_str(s.as_ptr())) }
     }
 
     /// Returns the length of the string if the value is an string
@@ -186,7 +193,7 @@ impl Value {
             .into_iter()
             .map(|w: Value| unsafe { w.ensure_ownership().into_val() })
             .collect();
-        unsafe { Value::from_val(dy_make_arr(v.as_ptr(), v.len() as u64)) }
+        unsafe { Value::from_ptr(dy_make_arr(v.as_ptr(), v.len() as u64)) }
     }
 
     /// Returns the length of the array if the value is an array
@@ -223,13 +230,31 @@ impl Value {
     ///
     /// * `idx` - the index of the entry
     pub unsafe fn get_arr_idx_unchecked(&self, idx: usize) -> Value {
-        Value::from_val_borrowed(dy_get_arr_idx(self.val, idx as u64))
+        Value::from_ptr_borrowed(dy_get_arr_idx(self.val, idx as u64))
     }
 
     /// Retrieves the internal data without checking the type
     pub unsafe fn get_arr_unchecked(&self) -> Vec<Value> {
-        let arr: &[ValuePtr] = from_raw_parts(dy_get_arr_data(self.val), self.get_arr_len_unchecked());
-        arr.iter().map(|v| Value::from_val_borrowed(*v)).collect()
+        let arr: &[ValuePtr] =
+            from_raw_parts(dy_get_arr_data(self.val), self.get_arr_len_unchecked());
+        arr.iter().map(|v| Value::from_ptr_borrowed(*v)).collect()
+    }
+
+    /// decomposes the value into a vector if the value is an array
+    pub fn decompose_arr(self) -> Result<Vec<Value>, Self> {
+        if self.is_arr() && self.owned {
+            unsafe { Ok(self.decompose_arr_unchecked()) }
+        } else {
+            Err(self)
+        }
+    }
+
+    /// decomposes the value (possibly an array) into a vector without checking the type of the valueFF
+    pub unsafe fn decompose_arr_unchecked(mut self) -> Vec<Value> {
+        self.dispose_self = true;
+        let arr: &[ValuePtr] =
+            from_raw_parts(dy_get_arr_data(self.val), self.get_arr_len_unchecked());
+        arr.iter().map(|v| Value::from_ptr(*v)).collect()
     }
 
     /// Makes a new generic map
@@ -259,7 +284,7 @@ impl Value {
             })
             .collect();
 
-        unsafe { Value::from_val(dy_make_map(vv.as_ptr(), vv.len() as u64)) }
+        unsafe { Value::from_ptr(dy_make_map(vv.as_ptr(), vv.len() as u64)) }
     }
 
     /// Returns the length of the map if the value is an map
@@ -297,6 +322,33 @@ impl Value {
     pub unsafe fn get_map_key_unchecked(&self, key: &str) -> Option<KeyValPair> {
         let str = CString::new(key).unwrap();
         KeyValPair::from_keyval_t(dy_get_map_key(self.val, str.as_ptr()))
+    }
+
+    /// decomposes the value into a hashmap if the value is a map
+    pub fn decompose_map(self) -> Result<HashMap<String, Value>, Self> {
+        if self.is_map() && self.owned {
+            unsafe { Ok(self.decompose_map_unchecked()) }
+        } else {
+            Err(self)
+        }
+    }
+
+    /// Decomposes the value (possibly a map) into a hashmap without checking the type of the value
+    pub unsafe fn decompose_map_unchecked(mut self) -> HashMap<String, Value> {
+        self.dispose_self = true;
+        let mut rtn = HashMap::with_capacity(self.get_map_len_unchecked());
+        let iter = dy_make_map_iter(self.val);
+        let mut pair = dy_get_map_iter(self.val, iter);
+        while pair.key != null() {
+            let key = match CStr::from_ptr(pair.key).to_string_lossy() {
+                Cow::Borrowed(s) => String::from(s),
+                Cow::Owned(s) => s,
+            };
+            rtn.insert(key, Value::from_ptr(pair.val));
+            pair = dy_get_map_iter(self.val, iter);
+        }
+        dy_dispose_map_iter(iter);
+        rtn
     }
 }
 
@@ -352,7 +404,7 @@ macro_rules! impl_arr_type_common {
             ///
             /// * `v` - the value to put
             pub fn $new(v: &[$ty]) -> Self {
-                unsafe { Value::from_val($imake(v.as_ptr(), v.len() as u64)) }
+                unsafe { Value::from_ptr($imake(v.as_ptr(), v.len() as u64)) }
             }
 
             /// Returns the length of the array if the value is an array
@@ -412,7 +464,7 @@ macro_rules! impl_type {
             ///
             /// * `v` - the value to put
             pub fn $new(v: $ty) -> Self {
-                unsafe { Value::from_val($imake(v)) }
+                unsafe { Value::from_ptr($imake(v)) }
             }
 
             /// Retrieves the internal data without checking the type.
@@ -529,6 +581,7 @@ impl Clone for Value {
             Value {
                 val: dy_copy(self.val),
                 owned: true,
+                dispose_self: false,
             }
         }
     }
@@ -538,7 +591,11 @@ impl Drop for Value {
     fn drop(&mut self) {
         if self.owned {
             unsafe {
-                dy_dispose(self.val);
+                if self.dispose_self {
+                    dy_dispose_self(self.val);
+                } else {
+                    dy_dispose(self.val);
+                }
             }
         }
     }
@@ -559,7 +616,7 @@ impl<'a> KeyValPair<'a> {
         } else {
             Some(KeyValPair {
                 key: CStr::from_ptr(pair.key).to_str().unwrap(),
-                wrap: Value::from_val_borrowed(pair.val),
+                wrap: Value::from_ptr_borrowed(pair.val),
             })
         }
     }
