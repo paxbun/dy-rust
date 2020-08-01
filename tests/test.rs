@@ -1,4 +1,5 @@
 use dy::*;
+use std::ops::Deref;
 
 #[test]
 fn bool_array_test() {
@@ -33,11 +34,11 @@ fn get_doubled_array(val: Value) -> Value {
     assert!(val.is_arr());
 
     let data = val.get_arr().unwrap();
-    let mut new_data = vec![];
+    let mut new_data: Vec<Value> = vec![];
     for d in &data {
         new_data.push(d.clone());
     }
-    for d in data {
+    for d in &data {
         new_data.push(d.clone());
     }
     Value::new_arr(new_data)

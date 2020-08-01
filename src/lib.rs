@@ -7,6 +7,7 @@ use std::borrow::Cow;
 use std::collections::HashMap;
 use std::convert::{Into, TryFrom};
 use std::ffi::{CStr, CString};
+use std::mem::ManuallyDrop;
 use std::ptr::null;
 use std::slice::from_raw_parts;
 
@@ -74,7 +75,6 @@ pub type ValuePtr = dy_t;
 pub struct Value {
     val: ValuePtr,
     owned: bool,
-    dispose_self: bool,
 }
 
 /// Indicates an iterator of a generic map
@@ -115,7 +115,6 @@ impl Value {
         Value {
             val: val,
             owned: true,
-            dispose_self: false,
         }
     }
 
@@ -128,7 +127,6 @@ impl Value {
         Value {
             val: val,
             owned: false,
-            dispose_self: false,
         }
     }
 
@@ -250,11 +248,13 @@ impl Value {
     }
 
     /// decomposes the value (possibly an array) into a vector without checking the type of the valueFF
-    pub unsafe fn decompose_arr_unchecked(mut self) -> Vec<Value> {
-        self.dispose_self = true;
+    pub unsafe fn decompose_arr_unchecked(self) -> Vec<Value> {
         let arr: &[ValuePtr] =
             from_raw_parts(dy_get_arr_data(self.val), self.get_arr_len_unchecked());
-        arr.iter().map(|v| Value::from_ptr(*v)).collect()
+        let rtn = arr.iter().map(|v| Value::from_ptr(*v)).collect();
+        let s = ManuallyDrop::new(self);
+        dy_dispose_self(s.val);
+        rtn
     }
 
     /// Makes a new generic map
@@ -334,8 +334,7 @@ impl Value {
     }
 
     /// Decomposes the value (possibly a map) into a hashmap without checking the type of the value
-    pub unsafe fn decompose_map_unchecked(mut self) -> HashMap<String, Value> {
-        self.dispose_self = true;
+    pub unsafe fn decompose_map_unchecked(self) -> HashMap<String, Value> {
         let mut rtn = HashMap::with_capacity(self.get_map_len_unchecked());
         let iter = dy_make_map_iter(self.val);
         let mut pair = dy_get_map_iter(self.val, iter);
@@ -348,6 +347,8 @@ impl Value {
             pair = dy_get_map_iter(self.val, iter);
         }
         dy_dispose_map_iter(iter);
+        let s = ManuallyDrop::new(self);
+        dy_dispose_self(s.val);
         rtn
     }
 }
@@ -581,7 +582,6 @@ impl Clone for Value {
             Value {
                 val: dy_copy(self.val),
                 owned: true,
-                dispose_self: false,
             }
         }
     }
@@ -591,11 +591,7 @@ impl Drop for Value {
     fn drop(&mut self) {
         if self.owned {
             unsafe {
-                if self.dispose_self {
-                    dy_dispose_self(self.val);
-                } else {
-                    dy_dispose(self.val);
-                }
+                dy_dispose(self.val);
             }
         }
     }
