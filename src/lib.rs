@@ -362,6 +362,9 @@ macro_rules! impl_array_types {
                     unsafe { $ilen(self.val.ptr) as usize }
                 }
 
+                /// Returns the data of the entry at the given index
+                ///
+                /// * `idx` - the index of the entry
                 pub fn at(&self, idx: usize) -> Option<$ty> {
                     if idx >= self.len() {
                         None
@@ -371,6 +374,7 @@ macro_rules! impl_array_types {
                 }
 
                 $(
+                    /// Returns the internal data of the array
                     pub fn data(&self) -> &[$ty] {
                         unsafe { from_raw_parts($idata(self.val.ptr), self.len()) }
                     }
