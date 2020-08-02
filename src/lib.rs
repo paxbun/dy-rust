@@ -4,141 +4,87 @@ mod bindings;
 
 use bindings::*;
 use std::borrow::Cow;
-use std::collections::HashMap;
-use std::convert::{Into, TryFrom};
+use std::clone::Clone;
 use std::ffi::{CStr, CString};
+use std::marker::PhantomData;
 use std::mem::ManuallyDrop;
+use std::ops::Deref;
 use std::ptr::null;
 use std::slice::from_raw_parts;
 
-macro_rules! def_type {
-    ($($doc:literal $name:ident = $internal:ident),+ $(,)?) => {
-        /// Indicates the type of `dy` values
-        #[derive(Debug, PartialEq, Clone, Copy)]
-        #[allow(non_upper_case_global)]
-        pub enum Type {
-            $(
-                #[doc = $doc]
-                #[doc = " type"]
-                $name = $internal as isize,
-            )+
-        }
-
-        impl TryFrom<_dy_type_t> for Type {
-            type Error = ();
-            fn try_from(i: _dy_type_t) -> Result<Self, ()> {
-                match i {
-                    $($internal => Ok(Type::$name),)+
-                    _ => Err(())
-                }
-            }
-        }
-
-        impl Into<_dy_type_t> for Type {
-            fn into(self) -> _dy_type_t {
-                match self {
-                    $(Type::$name => $internal,)+
-                }
-            }
-        }
-    };
-}
-
-def_type! {
-    "Null type"
-    Null = _dy_type_t_dy_type_null,
-    "Boolean type"
-    Bool = _dy_type_t_dy_type_b,
-    "8-byte integer type"
-    Int = _dy_type_t_dy_type_i,
-    "Double-precision floating point type"
-    Float = _dy_type_t_dy_type_f,
-    "String type"
-    Str = _dy_type_t_dy_type_str,
-    "Boolean array type"
-    BoolArr = _dy_type_t_dy_type_barr,
-    "Integer array type"
-    IntArr = _dy_type_t_dy_type_iarr,
-    "Floating point number type"
-    FloatArr = _dy_type_t_dy_type_farr,
-    "Generic array type"
-    Arr = _dy_type_t_dy_type_arr,
-    "Generic map type"
-    Map = _dy_type_t_dy_type_map,
-}
-
-/// Indicates a value
+/// A pointer to a `dy` value.
 pub type ValuePtr = dy_t;
 
-/// Wraps a value.
+/// The type indicating a `dy` value. Contains a `ValuePtr` instance.
 #[derive(Debug)]
 pub struct Value {
-    val: ValuePtr,
-    owned: bool,
+    ptr: ValuePtr,
 }
 
-/// Indicates an iterator of a generic map
+/// The type indicating a borrowed `dy` value.
 #[derive(Debug)]
-pub struct MapIter<'a> {
-    wrap: &'a Value,
-    iter: dy_iter_t,
+pub struct Borrowed<'a> {
+    val: Value,
+    phantom: PhantomData<&'a Value>,
+}
+
+/// The type indicating an owned `dy` value. Automatically deallocates the memory.
+#[derive(Debug)]
+pub struct Owned {
+    val: Value,
 }
 
 /// Indicates a key-value pair
 #[derive(Debug)]
 pub struct KeyValPair<'a> {
     key: &'a str,
-    wrap: Value,
+    val: Value,
+}
+
+/// Indicates an iterator of an generic array
+#[derive(Debug)]
+pub struct ArrIter<'a> {
+    /// the array
+    val: &'a Value,
+    idx: usize,
+}
+
+/// Indicates an iterator of a generic map
+#[derive(Debug)]
+pub struct MapIter<'a> {
+    /// the generic map
+    val: &'a Value,
+    iter: dy_iter_t,
 }
 
 impl Value {
+    /// Creates a new value instance from a pointer
+    ///
+    /// # Arguments
+    ///
+    /// * `ptr` - the pointer to wrap
+    unsafe fn from_ptr(ptr: ValuePtr) -> Self {
+        Value { ptr: ptr }
+    }
+
     /// Returns the type of the value
     pub fn get_type(&self) -> Type {
-        unsafe { Type::try_from(dy_get_type(self.val)).unwrap() }
+        Type::from_dy_type_t(unsafe { dy_get_type(self.ptr) }).unwrap()
     }
 
-    /// Copies the instance if the instance is borrowed
-    pub fn ensure_ownership(self) -> Self {
-        if self.owned {
-            self
-        } else {
-            self.clone()
-        }
+    /// Clones the value
+    pub fn copy(&self) -> Owned {
+        unsafe { Owned::from_ptr(dy_copy(self.ptr)) }
     }
 
-    /// Creates a new wrapper instance from a value
-    ///
-    /// # Arguments
-    ///
-    /// * `val` - the value instance to wrap
-    pub unsafe fn from_ptr(val: ValuePtr) -> Self {
-        Value {
-            val: val,
-            owned: true,
-        }
-    }
-
-    /// Creates a new wrapper instance from a value but without the ownership.
-    ///
-    /// # Arguments
-    ///
-    /// * `val` - the value instance to wrap
-    pub unsafe fn from_ptr_borrowed(val: ValuePtr) -> Self {
-        Value {
-            val: val,
-            owned: false,
-        }
-    }
-
-    /// Returns the internal value
-    pub unsafe fn into_val(mut self) -> ValuePtr {
-        self.owned = false;
-        self.val
+    /// Borrow a value
+    pub fn borrow<'a>(&'a self) -> Borrowed<'a> {
+        unsafe { Borrowed::from_ptr(self.ptr) }
     }
 
     /// Makes a new null value
-    pub fn new_null() -> Self {
-        unsafe { Value::from_ptr(dy_make_null()) }
+    pub fn new_null() -> Owned {
+        unsafe { Owned::from_ptr(dy_make_null()) }
     }
 
     /// Makes a new string
@@ -146,39 +92,9 @@ impl Value {
     /// # Arguments
     ///
     /// * `v` - the string to copy
-    pub fn new_str(v: &str) -> Self {
+    pub fn new_str(v: &str) -> Owned {
         let s = CString::new(v).unwrap();
-        unsafe { Value::from_ptr(dy_make_str(s.as_ptr())) }
-    }
-
-    /// Returns the length of the string if the value is an string
-    pub fn get_str_len(&self) -> Option<usize> {
-        if !self.is_str() {
-            None
-        } else {
-            unsafe { Some(self.get_str_len_unchecked()) }
-        }
-    }
-
-    /// Returns the length of the string without checking the type
-    pub unsafe fn get_str_len_unchecked(&self) -> usize {
-        dy_get_str_len(self.val) as usize
-    }
-
-    pub fn get_str(&self) -> Option<String> {
-        if !self.is_str() {
-            None
-        } else {
-            unsafe { Some(self.get_str_unchecked()) }
-        }
-    }
-
-    /// Retrieves the internal data without checking the type.
-    pub unsafe fn get_str_unchecked(&self) -> String {
-        match CStr::from_ptr(dy_get_str_data(self.val)).to_string_lossy() {
-            Cow::Borrowed(s) => String::from(s),
-            Cow::Owned(s) => s,
-        }
+        unsafe { Owned::from_ptr(dy_make_str(s.as_ptr())) }
     }
 
     /// Makes a new generic array
@@ -186,75 +102,9 @@ impl Value {
     /// # Arguments
     ///
     /// * `v` - the array to put
-    pub fn new_arr(v: Vec<Value>) -> Self {
-        let v: Vec<ValuePtr> = v
-            .into_iter()
-            .map(|w: Value| unsafe { w.ensure_ownership().into_val() })
-            .collect();
-        unsafe { Value::from_ptr(dy_make_arr(v.as_ptr(), v.len() as u64)) }
-    }
-
-    /// Returns the length of the array if the value is an array
-    pub fn get_arr_len(&self) -> Option<usize> {
-        if !self.is_arr() {
-            None
-        } else {
-            unsafe { Some(self.get_arr_len_unchecked()) }
-        }
-    }
-
-    /// Returns the length of the array without checking the type
-    pub unsafe fn get_arr_len_unchecked(&self) -> usize {
-        dy_get_arr_len(self.val) as usize
-    }
-
-    /// Returns the data of the entry at the given index in the internal data if the value
-    /// is an array.
-    ///
-    /// # Arguments
-    ///
-    /// * `idx` - the index of the entry
-    pub fn get_arr_idx(&self, idx: usize) -> Option<Value> {
-        if !self.is_arr() {
-            None
-        } else if idx >= self.get_arr_len().unwrap() {
-            None
-        } else {
-            Some(unsafe { self.get_arr_idx_unchecked(idx) })
-        }
-    }
-
-    /// Returns the data of the entry at the given index without checking the type
-    ///
-    /// * `idx` - the index of the entry
-    pub unsafe fn get_arr_idx_unchecked(&self, idx: usize) -> Value {
-        Value::from_ptr_borrowed(dy_get_arr_idx(self.val, idx as u64))
-    }
-
-    /// Retrieves the internal data without checking the type
-    pub unsafe fn get_arr_unchecked(&self) -> Vec<Value> {
-        let arr: &[ValuePtr] =
-            from_raw_parts(dy_get_arr_data(self.val), self.get_arr_len_unchecked());
-        arr.iter().map(|v| Value::from_ptr_borrowed(*v)).collect()
-    }
-
-    /// decomposes the value into a vector if the value is an array
-    pub fn decompose_arr(self) -> Result<Vec<Value>, Self> {
-        if self.is_arr() && self.owned {
-            unsafe { Ok(self.decompose_arr_unchecked()) }
-        } else {
-            Err(self)
-        }
-    }
-
-    /// decomposes the value (possibly an array) into a vector without checking the type of the valueFF
-    pub unsafe fn decompose_arr_unchecked(self) -> Vec<Value> {
-        let arr: &[ValuePtr] =
-            from_raw_parts(dy_get_arr_data(self.val), self.get_arr_len_unchecked());
-        let rtn = arr.iter().map(|v| Value::from_ptr(*v)).collect();
-        let s = ManuallyDrop::new(self);
-        dy_dispose_self(s.val);
-        rtn
+    pub fn new_arr(v: Vec<Owned>) -> Owned {
+        let v: Vec<ValuePtr> = v.into_iter().map(|w| w.into_ptr()).collect();
+        unsafe { Owned::from_ptr(dy_make_arr(v.as_ptr(), v.len() as u64)) }
     }
 
     /// Makes a new generic map
@@ -262,14 +112,12 @@ impl Value {
     /// # Arguments
     ///
     /// * `v` - the array of key-value pairs to copy
-    pub fn new_map(v: Vec<(&str, Value)>) -> Self {
+    pub fn new_map(v: Vec<(&str, Owned)>) -> Owned {
         let v: Vec<(CString, ValuePtr)> = v
             .into_iter()
             .map(|tup| {
                 let (s, w) = tup;
-                (CString::new(s).unwrap(), unsafe {
-                    w.ensure_ownership().into_val()
-                })
+                (CString::new(s).unwrap(), w.into_ptr())
             })
             .collect();
 
@@ -284,21 +132,296 @@ impl Value {
             })
             .collect();
 
-        unsafe { Value::from_ptr(dy_make_map(vv.as_ptr(), vv.len() as u64)) }
+        unsafe { Owned::from_ptr(dy_make_map(vv.as_ptr(), vv.len() as u64)) }
     }
+}
 
-    /// Returns the length of the map if the value is an map
-    pub fn get_map_len(&self) -> Option<usize> {
-        if !self.is_map() {
-            None
-        } else {
-            unsafe { Some(self.get_map_len_unchecked()) }
+impl Borrowed<'_> {
+    /// Creates a new borrowed value instance from a pointer
+    ///
+    /// # Arguments
+    ///
+    /// * `ptr` - the pointer to wrap
+    unsafe fn from_ptr(ptr: ValuePtr) -> Self {
+        Borrowed {
+            val: Value { ptr: ptr },
+            phantom: PhantomData,
+        }
+    }
+}
+
+impl<'a> Deref for Borrowed<'a> {
+    type Target = Value;
+    fn deref(&self) -> &Value {
+        &self.val
+    }
+}
+
+impl Owned {
+    /// Creates a new value instance from a pointer
+    ///
+    /// # Arguments
+    ///
+    /// * `ptr` - the pointer to wrap
+    pub unsafe fn from_ptr(ptr: ValuePtr) -> Self {
+        Owned {
+            val: Value::from_ptr(ptr),
         }
     }
 
-    /// Returns the length of the array without checking the type
-    pub unsafe fn get_map_len_unchecked(&self) -> usize {
-        dy_get_map_len(self.val) as usize
+    /// Returns the internal pointer
+    pub fn into_ptr(self) -> ValuePtr {
+        let s = ManuallyDrop::new(self);
+        s.val.ptr
+    }
+}
+
+impl Deref for Owned {
+    type Target = Value;
+    fn deref(&self) -> &Value {
+        &self.val
+    }
+}
+
+impl Drop for Owned {
+    fn drop(&mut self) {
+        unsafe { dy_dispose(self.val.ptr) }
+    }
+}
+
+macro_rules! def_type {
+    (
+        $(
+            $name:ident($doc:literal, $as_val:ident)
+                = $internal:ident,
+                  $as:ident, $is:ident
+        );+ $(;)?
+    ) => {
+        /// Indicates the type of `dy` values
+        #[derive(Debug, PartialEq, Clone, Copy)]
+        #[allow(non_upper_case_global)]
+        pub enum Type {
+            $(
+                #[doc = "Indicates a "]
+                #[doc = $doc]
+                #[doc = " type"]
+                $name = $internal as isize,
+            )+
+        }
+
+        impl Type {
+            fn from_dy_type_t(i: _dy_type_t) -> Result<Self, ()> {
+                match i {
+                    $($internal => Ok(Type::$name),)+
+                    _ => Err(())
+                }
+            }
+        }
+
+        $(
+            #[doc = "Indicates a reference to a "]
+            #[doc = $doc]
+            #[doc = " type value"]
+            #[allow(dead_code)]
+            #[derive(Debug, Clone, Copy)]
+            pub struct $as_val<'a> {
+                val: &'a Value,
+            }
+
+            impl Value {
+                #[doc = "If the value is a "]
+                #[doc = $doc]
+                #[doc = " type value, returns a reference to the given value"]
+                pub fn $as<'a>(&'a self) -> Option<$as_val<'a>> {
+                    if self.$is() {
+                        Some($as_val {
+                            val: self
+                        })
+                    } else {
+                        None
+                    }
+                }
+
+                #[doc = "Returns `true` if the value is a "]
+                #[doc = $doc]
+                #[doc = " type value"]
+                pub fn $is(&self) -> bool {
+                    self.get_type() == Type::$name
+                }
+            }
+        )+
+    };
+}
+
+def_type! {
+    Null("null", AsNullValue)
+        = _dy_type_t_dy_type_null,
+          as_null, is_null;
+    Bool("boolean", AsBoolValue)
+        = _dy_type_t_dy_type_b,
+          as_bool, is_bool;
+    Int("8-byte integer", AsIntValue)
+        = _dy_type_t_dy_type_i,
+          as_int, is_int;
+    Float("double-precision floating point", AsFloatValue)
+        = _dy_type_t_dy_type_f,
+          as_float, is_float;
+    Str("string", AsStrValue)
+        = _dy_type_t_dy_type_str,
+          as_str, is_str;
+    BoolArr("boolean array", AsBoolArrValue)
+        = _dy_type_t_dy_type_barr,
+          as_bool_arr, is_bool_arr;
+    IntArr("integer array", AsIntArrValue)
+        = _dy_type_t_dy_type_iarr,
+          as_int_arr, is_int_arr;
+    FloatArr("floating point number array", AsFloatArrValue)
+        = _dy_type_t_dy_type_farr,
+          as_float_arr, is_float_arr;
+    Arr("generic array", AsArrValue)
+        = _dy_type_t_dy_type_arr,
+          as_arr, is_arr;
+    Map("generic map", AsMapValue)
+        = _dy_type_t_dy_type_map,
+          as_map, is_map;
+}
+
+macro_rules! impl_primitive_types {
+    ($($as_val:ident($doc:literal, $ty:ty): $new:ident => $imake:ident, $iget:ident);+ $(;)?) => {
+        $(
+            impl Value {
+                #[doc = "Makes a new "]
+                #[doc = $doc]
+                #[doc = " value"]
+                ///
+                /// # Arguments
+                ///
+                /// * `v` - the value to put
+                pub fn $new(v: $ty) -> Owned {
+                    unsafe { Owned::from_ptr($imake(v)) }
+                }
+            }
+
+            /// Retrieves the internal data
+            impl<'a> $as_val<'a> {
+                pub fn get(&self) -> $ty {
+                    unsafe { $iget(self.val.ptr) }
+                }
+            }
+        )+
+    };
+}
+
+impl_primitive_types! {
+    AsBoolValue("boolean", bool)
+        : new_bool  => dy_make_b, dy_get_b;
+    AsIntValue("8-byte integer", i64)
+        : new_int   => dy_make_i, dy_get_i;
+    AsFloatValue("double-precision floating point", f64)
+        : new_float => dy_make_f, dy_get_f;
+}
+
+impl<'a> AsStrValue<'a> {
+    /// Returns the length of the string
+    pub fn len(&self) -> usize {
+        unsafe { dy_get_str_len(self.val.ptr) as usize }
+    }
+
+    /// Makes a string instance from this value
+    pub fn get(&self) -> String {
+        match unsafe { CStr::from_ptr(dy_get_str_data(self.val.ptr)) }.to_string_lossy() {
+            Cow::Borrowed(s) => String::from(s),
+            Cow::Owned(s) => s,
+        }
+    }
+}
+
+macro_rules! impl_array_types {
+    (
+        $($as_val:ident($doc:literal, $ty:ty)
+            : $new:ident
+            => $imake:ident, $ilen:ident, $iget:ident $(, $idata:ident)?);+ $(;)?
+    ) => {
+        $(
+            impl Value {
+                #[doc = "Makes a new "]
+                #[doc = $doc]
+                #[doc = " value"]
+                ///
+                /// # Arguments
+                ///
+                /// * `v` - the value to put
+                pub fn $new(v: &[$ty]) -> Owned {
+                    unsafe { Owned::from_ptr($imake(v.as_ptr(), v.len() as u64)) }
+                }
+            }
+
+            impl<'a> $as_val<'a> {
+                /// Returns the length of the array
+                pub fn len(&self) -> usize {
+                    unsafe { $ilen(self.val.ptr) as usize }
+                }
+
+                pub fn at(&self, idx: usize) -> Option<$ty> {
+                    if idx >= self.len() {
+                        None
+                    } else {
+                        unsafe { Some($iget(self.val.ptr, idx as u64)) }
+                    }
+                }
+
+                $(
+                    pub fn data(&self) -> &[$ty] {
+                        unsafe { from_raw_parts($idata(self.val.ptr), self.len()) }
+                    }
+                )?
+            }
+        )+
+    };
+}
+
+impl_array_types! {
+    AsBoolArrValue("boolean array", bool)
+        : new_bool_arr
+        => dy_make_barr, dy_get_barr_len, dy_get_barr_idx;
+    AsIntArrValue("integer array", i64)
+        : new_int_arr
+        => dy_make_iarr, dy_get_iarr_len, dy_get_iarr_idx, dy_get_iarr_data;
+    AsFloatArrValue("floating point number array", f64)
+        : new_float_arr
+        => dy_make_farr, dy_get_farr_len, dy_get_farr_idx, dy_get_farr_data;
+}
+
+impl<'a> AsArrValue<'a> {
+    /// Returns the length of the array
+    pub fn len(&self) -> usize {
+        unsafe { dy_get_arr_len(self.val.ptr) as usize }
+    }
+
+    /// Returns the data of the entry at the given index
+    ///
+    /// * `idx` - the index of the entry
+    pub fn at(&self, idx: usize) -> Option<Borrowed<'a>> {
+        if idx >= self.len() {
+            None
+        } else {
+            unsafe { Some(Borrowed::from_ptr(dy_get_arr_idx(self.val.ptr, idx as u64))) }
+        }
+    }
+
+    /// Returns the iterator of this array
+    pub fn iter(&self) -> ArrIter<'a> {
+        ArrIter {
+            val: self.val,
+            idx: 0,
+        }
+    }
+}
+
+impl<'a> AsMapValue<'a> {
+    /// Returns the size of the map
+    pub fn size(&self) -> usize {
+        unsafe { dy_get_map_len(self.val.ptr) as usize }
     }
 
     /// Returns the data with the given key
@@ -306,293 +429,16 @@ impl Value {
     /// # Arguments
     ///
     /// * `key` - the key of the data
-    pub fn get_map_key(&self, key: &str) -> Option<KeyValPair> {
-        if !self.is_map() {
-            None
-        } else {
-            unsafe { self.get_map_key_unchecked(key) }
-        }
-    }
-
-    /// Returns the data with the given key without checking the type of the value
-    ///
-    /// # Arguments
-    ///
-    /// * `key` - the key of the data
-    pub unsafe fn get_map_key_unchecked(&self, key: &str) -> Option<KeyValPair> {
+    pub fn at(&self, key: &str) -> Option<KeyValPair<'a>> {
         let str = CString::new(key).unwrap();
-        KeyValPair::from_keyval_t(dy_get_map_key(self.val, str.as_ptr()))
+        unsafe { KeyValPair::from_keyval_t(dy_get_map_key(self.val.ptr, str.as_ptr())) }
     }
 
-    /// decomposes the value into a hashmap if the value is a map
-    pub fn decompose_map(self) -> Result<HashMap<String, Value>, Self> {
-        if self.is_map() && self.owned {
-            unsafe { Ok(self.decompose_map_unchecked()) }
-        } else {
-            Err(self)
-        }
-    }
-
-    /// Decomposes the value (possibly a map) into a hashmap without checking the type of the value
-    pub unsafe fn decompose_map_unchecked(self) -> HashMap<String, Value> {
-        let mut rtn = HashMap::with_capacity(self.get_map_len_unchecked());
-        let iter = dy_make_map_iter(self.val);
-        let mut pair = dy_get_map_iter(self.val, iter);
-        while pair.key != null() {
-            let key = match CStr::from_ptr(pair.key).to_string_lossy() {
-                Cow::Borrowed(s) => String::from(s),
-                Cow::Owned(s) => s,
-            };
-            rtn.insert(key, Value::from_ptr(pair.val));
-            pair = dy_get_map_iter(self.val, iter);
-        }
-        dy_dispose_map_iter(iter);
-        let s = ManuallyDrop::new(self);
-        dy_dispose_self(s.val);
-        rtn
-    }
-}
-
-macro_rules! impl_is_type {
-    (
-        $e:ident, $name:literal
-            : $is:ident
-    ) => {
-        impl Value {
-            #[doc = "Checks if the value is "]
-            #[doc = $name]
-            pub fn $is(&self) -> bool {
-                self.get_type() == Type::$e
-            }
-        }
-    };
-}
-
-macro_rules! impl_type_common {
-    (
-        $ty:ty, $e:ident, $name:literal
-            : $is:ident, $get:ident, $uget:ident
-    ) => {
-        impl Value {
-            /// Retrieves the internal data if the type is correct. Returns `None` otherwise.
-            pub fn $get(&self) -> Option<$ty> {
-                unsafe {
-                    if self.$is() {
-                        Some(self.$uget())
-                    } else {
-                        None
-                    }
-                }
-            }
-        }
-
-        impl_is_type! { $e, $name: $is }
-    };
-}
-
-macro_rules! impl_arr_type_common {
-    (
-        $ty:ty, $e:ident, $name:literal
-            : $new:ident, $is:ident, $len:ident, $ulen:ident, $get_idx:ident, $uget_idx:ident
-            => $imake:ident, $ilen:ident, $iget_idx:ident
-    ) => {
-        impl Value {
-            #[doc = "Makes a new "]
-            #[doc = $name]
-            #[doc = " value"]
-            ///
-            /// # Arguments
-            ///
-            /// * `v` - the value to put
-            pub fn $new(v: &[$ty]) -> Self {
-                unsafe { Value::from_ptr($imake(v.as_ptr(), v.len() as u64)) }
-            }
-
-            /// Returns the length of the array if the value is an array
-            pub fn $len(&self) -> Option<usize> {
-                if !self.$is() {
-                    None
-                } else {
-                    unsafe { Some(self.$ulen()) }
-                }
-            }
-
-            /// Returns the length of the array without checking the type
-            pub unsafe fn $ulen(&self) -> usize {
-                $ilen(self.val) as usize
-            }
-
-            /// Returns the data of the entry at the given index in the internal data if the value
-            /// is an array.
-            ///
-            /// # Arguments
-            ///
-            /// * `idx` - the index of the entry
-            pub fn $get_idx(&self, idx: usize) -> Option<$ty> {
-                if !self.$is() {
-                    None
-                } else if idx >= self.$len().unwrap() {
-                    None
-                } else {
-                    Some(unsafe { self.$uget_idx(idx) })
-                }
-            }
-
-            /// Returns the data of the entry at the given index without checking the type
-            ///
-            /// * `idx` - the index of the entry
-            pub unsafe fn $uget_idx(&self, idx: usize) -> $ty {
-                $iget_idx(self.val, idx as u64)
-            }
-        }
-
-        impl_is_type! { $e, $name: $is }
-    };
-}
-
-macro_rules! impl_type {
-    (
-        $ty:ty, $e:ident, $name:literal
-            : $new:ident, $is:ident, $get:ident, $uget:ident
-            => $imake:ident, $iget:ident
-    ) => {
-        impl Value {
-            #[doc = "Makes a new "]
-            #[doc = $name]
-            #[doc = " value"]
-            ///
-            /// # Arguments
-            ///
-            /// * `v` - the value to put
-            pub fn $new(v: $ty) -> Self {
-                unsafe { Value::from_ptr($imake(v)) }
-            }
-
-            /// Retrieves the internal data without checking the type.
-            pub unsafe fn $uget(&self) -> $ty {
-                $iget(self.val)
-            }
-        }
-
-        impl_type_common! { $ty, $e, $name: $is, $get, $uget }
-    };
-}
-
-macro_rules! impl_arr_type {
-    (
-        $ty:ty, $e:ident, $name:literal
-            : $new:ident, $is:ident, $len:ident,
-              $ulen:ident, $get_idx:ident, $uget_idx:ident,
-              $get:ident, $uget:ident
-            => $imake:ident, $ilen:ident, $iget_idx:ident, $iget_data:ident
-    ) => {
-        impl Value {
-            /// Retrieves the internal data if the type is correct. Returns `None` otherwise.
-            pub fn $get(&self) -> Option<&[$ty]> {
-                if !self.$is() {
-                    None
-                } else {
-                    Some(unsafe { self.$uget() })
-                }
-            }
-
-            /// Retrieves the internal data without checking the type
-            pub unsafe fn $uget(&self) -> &[$ty] {
-                from_raw_parts($iget_data(self.val), self.$ulen())
-            }
-        }
-
-        impl_arr_type_common! {
-            $ty, $e, $name
-                : $new, $is, $len, $ulen, $get_idx, $uget_idx
-                => $imake, $ilen, $iget_idx
-        }
-    };
-}
-
-impl_is_type! { Null, "null": is_null }
-
-impl_type! {
-    bool, Bool, "boolean"
-        : new_bool, is_bool, get_bool, get_bool_unchecked
-        => dy_make_b, dy_get_b
-}
-
-impl_type! {
-    i64, Int, "integer"
-        : new_int, is_int, get_int, get_int_unchecked
-        => dy_make_i, dy_get_i
-}
-
-impl_type! {
-    f64, Float, "float"
-        : new_float, is_float, get_float, get_float_unchecked
-        => dy_make_f, dy_get_f
-}
-
-impl_is_type! { Str, "string": is_str }
-
-impl_arr_type_common! {
-    bool, BoolArr, "boolean array"
-        : new_bool_arr,
-          is_bool_arr,
-          get_bool_arr_len,
-          get_bool_arr_len_unchecked,
-          get_bool_by_idx,
-          get_bool_by_idx_unchecked
-        => dy_make_barr, dy_get_barr_len, dy_get_barr_idx
-}
-
-impl_arr_type! {
-    i64, IntArr, "integer array"
-        : new_int_arr,
-          is_int_arr,
-          get_int_arr_len,
-          get_int_arr_len_unchecked,
-          get_int_by_idx,
-          get_int_by_idx_unchecked,
-          get_int_arr,
-          get_int_arr_unchecked
-        => dy_make_iarr, dy_get_iarr_len, dy_get_iarr_idx, dy_get_iarr_data
-}
-
-impl_arr_type! {
-    f64, FloatArr, "float array"
-        : new_float_arr,
-          is_float_arr,
-          get_float_arr_len,
-          get_float_arr_len_unchecked,
-          get_float_by_idx,
-          get_float_by_idx_unchecked,
-          get_float_arr,
-          get_float_arr_unchecked
-        => dy_make_farr, dy_get_farr_len, dy_get_farr_idx, dy_get_farr_data
-}
-
-impl_type_common! {
-    Vec<Value>, Arr, "generic array"
-        : is_arr, get_arr, get_arr_unchecked
-}
-
-impl_is_type! { Map, "generic map": is_map }
-
-impl Clone for Value {
-    fn clone(&self) -> Self {
-        unsafe {
-            Value {
-                val: dy_copy(self.val),
-                owned: true,
-            }
-        }
-    }
-}
-
-impl Drop for Value {
-    fn drop(&mut self) {
-        if self.owned {
-            unsafe {
-                dy_dispose(self.val);
-            }
+    /// Returns the iterator of this map
+    pub fn iter(&self) -> MapIter<'a> {
+        MapIter {
+            val: self.val,
+            iter: unsafe { dy_make_map_iter(self.val.ptr) },
         }
     }
 }
@@ -603,7 +449,7 @@ impl<'a> KeyValPair<'a> {
     }
 
     pub fn get_val(&self) -> &Value {
-        &self.wrap
+        &self.val
     }
 
     unsafe fn from_keyval_t(pair: dy_keyval_t) -> Option<Self> {
@@ -612,36 +458,24 @@ impl<'a> KeyValPair<'a> {
         } else {
             Some(KeyValPair {
                 key: CStr::from_ptr(pair.key).to_str().unwrap(),
-                wrap: Value::from_ptr_borrowed(pair.val),
+                val: Value::from_ptr(pair.val),
             })
         }
     }
 }
 
-impl<'a> MapIter<'a> {
-    /// makes an iterator of the generic map in the internal data
-    ///
-    /// # Arguments
-    ///
-    /// * `wrap` - the generic map
-    pub fn new(wrap: &'a Value) -> Option<Self> {
-        if !wrap.is_map() {
+impl<'a> Iterator for ArrIter<'a> {
+    type Item = Borrowed<'a>;
+    fn next(&mut self) -> Option<Borrowed<'a>> {
+        let len = unsafe { dy_get_arr_len(self.val.ptr) as usize };
+        if self.idx == len {
             None
         } else {
-            unsafe { Some(MapIter::new_unchecked(wrap)) }
-        }
-    }
-
-    /// makes an iterator of the value (which possibly is a generic map) in the internal data
-    /// without checking the type of the value
-    ///
-    /// # Arguments
-    ///
-    /// * `wrap` - the value wrapper
-    pub unsafe fn new_unchecked(wrap: &'a Value) -> Self {
-        MapIter {
-            wrap: wrap,
-            iter: dy_make_map_iter(wrap.val),
+            unsafe {
+                let ptr = dy_get_arr_idx(self.val.ptr, self.idx as u64);
+                self.idx += 1;
+                Some(Borrowed::from_ptr(ptr))
+            }
         }
     }
 }
@@ -649,7 +483,7 @@ impl<'a> MapIter<'a> {
 impl<'a> Iterator for MapIter<'a> {
     type Item = KeyValPair<'a>;
     fn next(&mut self) -> Option<KeyValPair<'a>> {
-        unsafe { KeyValPair::from_keyval_t(dy_get_map_iter(self.wrap.val, self.iter)) }
+        unsafe { KeyValPair::from_keyval_t(dy_get_map_iter(self.val.ptr, self.iter)) }
     }
 }
 
