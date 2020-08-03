@@ -10,7 +10,7 @@ fn run_cmake(source_dir: &str) {
         "CMakeLists.txt",
     ];
     for src in sources.iter() {
-        println!("cargo:rustc-if-changed={}/{}", source_dir, src);
+        println!("cargo:rerun-if-changed={}/{}", source_dir, src);
     }
 
     let install_dir = cmake::build(source_dir);
