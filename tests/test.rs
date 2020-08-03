@@ -11,6 +11,14 @@ fn bool_array_test() {
 }
 
 #[test]
+fn bytes_test() {
+    let cmp = vec![2, 3, 4, 1];
+    let dy = Value::new_bytes(&cmp);
+    let arr = dy.as_bytes().unwrap();
+    assert_eq!(cmp, arr.data());
+}
+
+#[test]
 fn int_array_test() {
     let cmp = vec![2, 3, 4, 1];
     let dy = Value::new_int_arr(&cmp);

@@ -272,6 +272,9 @@ def_type! {
     BoolArr("boolean array", AsBoolArrValue)
         = _dy_type_t_dy_type_barr,
           as_bool_arr, is_bool_arr;
+    Bytes("byte array", AsBytesValue)
+        = _dy_type_t_dy_type_bytes,
+        as_bytes, is_bytes;
     IntArr("integer array", AsIntArrValue)
         = _dy_type_t_dy_type_iarr,
           as_int_arr, is_int_arr;
@@ -388,6 +391,9 @@ impl_array_types! {
     AsBoolArrValue("boolean array", bool)
         : new_bool_arr
         => dy_make_barr, dy_get_barr_len, dy_get_barr_idx;
+    AsBytesValue("byte array", u8)
+        : new_bytes
+        => dy_make_bytes, dy_get_bytes_len, dy_get_bytes_idx, dy_get_bytes_data;
     AsIntArrValue("integer array", i64)
         : new_int_arr
         => dy_make_iarr, dy_get_iarr_len, dy_get_iarr_idx, dy_get_iarr_data;
