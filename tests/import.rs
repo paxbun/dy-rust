@@ -3,7 +3,8 @@ use dy::*;
 #[test]
 #[cfg(feature = "import")]
 fn import_dll_test() {
-    let m = Module::new("import_test", &[&format!("{}/{}", module_path!(), "..")]).unwrap();
+    println!(module_path!());
+    let m = Module::new("import_test", &[&env!("CARGO_MANIFEST_DIR")]).unwrap();
     let f = m.get_fn("multiply_two_only_numbers").unwrap();
     let args = vec![
         Value::new_int(5),
