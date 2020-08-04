@@ -3,7 +3,7 @@ name = "dy"
 version = "1.0.0"
 authors = ["Chanjung Kim <freiyer.paxbun@gmail.com>"]
 edition = "2018"
-description = "JSON-like type library for Rust"
+description = "C-compatible JSON-like type library for Rust"
 repository = "https://github.com/paxbun/dy-rust"
 license = "MIT"
 
