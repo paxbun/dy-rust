@@ -142,7 +142,7 @@ impl Borrowed<'_> {
     /// # Arguments
     ///
     /// * `ptr` - the pointer to wrap
-    unsafe fn from_ptr(ptr: ValuePtr) -> Self {
+    pub unsafe fn from_ptr(ptr: ValuePtr) -> Self {
         Borrowed {
             val: Value { ptr: ptr },
             phantom: PhantomData,
