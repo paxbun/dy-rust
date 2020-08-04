@@ -47,12 +47,12 @@ fn get_doubled_array(arr: AsArrValue<'_>) -> Owned {
 
 #[test]
 fn generic_array_test() {
-    let dy = Value::new_arr(vec![
+    let arr = Value::new_arr(vec![
         Value::new_str("hello"),
         Value::new_int(15),
         Value::new_bool(true),
     ]);
-    let arr = dy.as_arr().unwrap();
+    let arr = arr.as_arr().unwrap();
     let arr2 = get_doubled_array(arr);
     let arr2 = arr2.as_arr().unwrap();
     assert_eq!(arr2.len(), 6);
@@ -70,12 +70,12 @@ fn generic_array_test() {
 
 #[test]
 fn generic_map_test() {
-    let dy = Value::new_map(vec![
+    let map = Value::new_map(vec![
         ("foo", Value::new_int_arr(&[2, 5, 4, 8, 1])),
         ("bar", Value::new_str("hello")),
         ("baz", Value::new_int(15)),
     ]);
-    let map = dy.as_map().unwrap();
+    let map = map.as_map().unwrap();
     for pair in map.iter() {
         let val = pair.get_val();
         match pair.get_key() {
@@ -89,12 +89,12 @@ fn generic_map_test() {
 
 #[test]
 fn as_test() {
-    let dy = Value::new_arr(vec![
+    let arr = Value::new_arr(vec![
         Value::new_str("hello"),
         Value::new_int(15),
         Value::new_bool(true),
     ]);
-    let arr = dy.as_arr().unwrap();
+    let arr = arr.as_arr().unwrap();
 
     for e in arr.iter() {
         match e.as_type() {
