@@ -9,7 +9,12 @@ license = "MIT"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
+[features]
+default = []
+import = ["libloading"]
+
 [dependencies]
+libloading = { version = "0.5", optional = true }
 
 [build-dependencies]
 cmake = "0.1"
