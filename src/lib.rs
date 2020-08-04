@@ -250,6 +250,27 @@ macro_rules! def_type {
                 }
             }
         )+
+
+        /// Used for `match` support
+        pub enum As<'a> {
+            $(
+                #[doc = "Indicates a "]
+                #[doc = $doc]
+                #[doc = " type"]
+                $name($as_val<'a>),
+            )+
+        }
+
+        impl Value {
+            /// Returns `As` instance with `As*Value` instance
+            pub fn as_type<'a>(&'a self) -> As<'a> {
+                match self.get_type() {
+                    $(
+                        Type::$name => As::$name($as_val { val: self }),
+                    )+
+                }
+            }
+        }
     };
 }
 

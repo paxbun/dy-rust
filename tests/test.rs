@@ -86,3 +86,22 @@ fn generic_map_test() {
         }
     }
 }
+
+#[test]
+fn as_test() {
+    let dy = Value::new_arr(vec![
+        Value::new_str("hello"),
+        Value::new_int(15),
+        Value::new_bool(true),
+    ]);
+    let arr = dy.as_arr().unwrap();
+
+    for e in arr.iter() {
+        match e.as_type() {
+            As::Str(s) => assert_eq!(s.get(), "hello"),
+            As::Int(i) => assert_eq!(i.get(), 15),
+            As::Bool(b) => assert_eq!(b.get(), true),
+            _ => panic!("Invalid type"),
+        }
+    }
+}
