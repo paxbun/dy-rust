@@ -3,8 +3,8 @@ use dy::*;
 #[test]
 fn bool_array_test() {
     let cmp = vec![true, false, true, true, false];
-    let dy = Value::new_bool_arr(&cmp);
-    let arr = dy.as_bool_arr().unwrap();
+    let arr = Value::new_bool_arr(&cmp);
+    let arr = arr.as_bool_arr().unwrap();
     for i in 0..arr.len() {
         assert_eq!(cmp[i], arr.at(i).unwrap());
     }
@@ -13,24 +13,24 @@ fn bool_array_test() {
 #[test]
 fn bytes_test() {
     let cmp = vec![2, 3, 4, 1];
-    let dy = Value::new_bytes(&cmp);
-    let arr = dy.as_bytes().unwrap();
+    let arr = Value::new_bytes(&cmp);
+    let arr = arr.as_bytes().unwrap();
     assert_eq!(cmp, arr.data());
 }
 
 #[test]
 fn int_array_test() {
     let cmp = vec![2, 3, 4, 1];
-    let dy = Value::new_int_arr(&cmp);
-    let arr = dy.as_int_arr().unwrap();
+    let arr = Value::new_int_arr(&cmp);
+    let arr = arr.as_int_arr().unwrap();
     assert_eq!(cmp, arr.data());
 }
 
 #[test]
 fn float_array_test() {
     let cmp = vec![2.5, 3.6, 3.8, 1.2, 4.5, 5.8];
-    let dy = Value::new_float_arr(&cmp);
-    let arr = dy.as_float_arr().unwrap();
+    let arr = Value::new_float_arr(&cmp);
+    let arr = arr.as_float_arr().unwrap();
     assert_eq!(cmp, arr.data());
 }
 
