@@ -1,3 +1,4 @@
+use std::env::var;
 use std::fs::File;
 use std::io::{Result, Write};
 use std::path::Path;
@@ -49,6 +50,8 @@ fn generate_bindings(header_path: &str) -> Result<()> {
 }
 
 fn main() -> Result<()> {
+    // Set profile as an environment variable: used to build tests/import_test
+    println!("cargo:rustc-env=PROFILE={}", var("PROFILE").unwrap());
     run_cmake("dy");
     generate_bindings("dy/public/dy.h")
 }
