@@ -1,8 +1,9 @@
+#![cfg(feature = "import")]
+
 use dy::*;
 use std::env;
 use std::process::{Command, Stdio};
 
-#[cfg(feature = "import")]
 fn build_cargo(current_dir: &String, is_release: bool) {
     let mut command = Command::new("cargo");
 
@@ -18,7 +19,6 @@ fn build_cargo(current_dir: &String, is_release: bool) {
 }
 
 #[test]
-#[cfg(feature = "import")]
 fn import_dll_test() {
     let profile = env!("PROFILE");
     let is_release = profile == "release";
