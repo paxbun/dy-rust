@@ -12,9 +12,11 @@ license = "MIT"
 [features]
 default = []
 import = ["libloading"]
+export = ["dy-export"]
 
 [dependencies]
 libloading = { version = "0.5", optional = true }
+dy-export = { git = "https://github.com/stelo-stella/dy-export", optional = true }
 
 [build-dependencies]
 cmake = "0.1"

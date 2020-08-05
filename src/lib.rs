@@ -7,3 +7,6 @@ pub use import::*;
 
 mod value;
 pub use value::*;
+
+#[cfg(feature = "export")]
+pub use dy_export::dy_export as export;
