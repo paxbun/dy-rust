@@ -1,0 +1,13 @@
+[package]
+name = "dll_test"
+version = "1.0.0"
+authors = ["Chanjung Kim <freiyer.paxbun@gmail.com>"]
+edition = "2018"
+license = "MIT"
+
+[lib]
+crate-type = ["cdylib"]
+
+[dependencies.dy]
+path = "../.."
+features = ["export"]

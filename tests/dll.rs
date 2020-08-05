@@ -1,4 +1,4 @@
-#![cfg(feature = "import")]
+#![cfg(all(feature = "import", feature = "export"))]
 
 use dy::*;
 use std::env;
@@ -19,14 +19,14 @@ fn build_cargo(current_dir: &String, is_release: bool) {
 }
 
 #[test]
-fn import_dll_test() {
+fn dll_test() {
     let profile = env!("PROFILE");
     let is_release = profile == "release";
-    let crate_path = format!("{}/tests/import_test", env!("CARGO_MANIFEST_DIR"));
+    let crate_path = format!("{}/tests/dll_test", env!("CARGO_MANIFEST_DIR"));
     build_cargo(&crate_path, is_release);
 
     let m = Module::new(
-        "import_test",
+        "dll_test",
         &[&format!("{}/target/{}", crate_path, profile)],
     )
     .unwrap();

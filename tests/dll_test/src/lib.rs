@@ -1,7 +1,6 @@
 use dy::*;
-use dy_export::dy_export;
 
-#[dy_export]
+#[export]
 pub fn multiply_two_only_numbers(args: Vec<Borrowed<'_>>) -> Owned {
     Value::new_arr(
         args.iter()
