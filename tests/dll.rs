@@ -11,11 +11,9 @@ fn build_cargo(current_dir: &String, is_release: bool) {
     if is_release {
         command.arg("--release");
     }
-    command
-        .current_dir(current_dir)
-        .stdout(Stdio::inherit())
-        .output()
-        .unwrap();
+
+    let status = command.current_dir(current_dir).status().unwrap();
+    assert!(status.success());
 }
 
 #[test]
@@ -25,11 +23,7 @@ fn dll_test() {
     let crate_path = format!("{}/tests/dll_test", env!("CARGO_MANIFEST_DIR"));
     build_cargo(&crate_path, is_release);
 
-    let m = Module::new(
-        "dll_test",
-        &[&format!("{}/target/{}", crate_path, profile)],
-    )
-    .unwrap();
+    let m = Module::new("dll_test", &[&format!("{}/target/{}", crate_path, profile)]).unwrap();
     let f = m.get_fn("multiply_two_only_numbers").unwrap();
     let args = vec![
         Value::new_int(5),
